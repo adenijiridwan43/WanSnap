@@ -47,9 +47,10 @@ export const VideoUploader: React.FC = () => {
   return (
     <div className="container mx-auto p-4">
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold mb-4">Framesnap</h1>
+        <h1 className="text-4xl font-bold mb-4">WanSnap</h1>
         <p className="text-gray-600">
-          Extract screenshots from your videos - Perfect for AI analysis
+          Extract screenshots from your videos - Perfect for ease analysis.
+          No moment of your video will be lost.
         </p>
       </div>
 
