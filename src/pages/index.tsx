@@ -5,7 +5,7 @@ function Welcome() {
 
   return (
     <>
-     <div className="min-h-screen bg-gray-100">
+     <div className="min-h-screen bg-[#28293D]">
       <VideoUploader />
       <HowToUse />
     </div>

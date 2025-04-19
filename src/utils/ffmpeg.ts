@@ -4,6 +4,7 @@ import { toBlobURL } from '@ffmpeg/util';
 class FFmpegService {
   private ffmpeg: FFmpeg;
   private loaded: boolean = false;
+  private maxRetries = 3;
 
   constructor() {
     this.ffmpeg = new FFmpeg();
@@ -12,21 +13,41 @@ class FFmpegService {
   
   async load() {
     if (!this.loaded) {
-      try {
-        // Using local files from public/ffmpeg
-        await this.ffmpeg.load({
-          coreURL: await toBlobURL('/ffmpeg/ffmpeg-core.js', 'text/javascript'),
-          wasmURL: await toBlobURL('/ffmpeg/ffmpeg-core.wasm', 'application/wasm'),
-          workerURL: await toBlobURL('/ffmpeg/ffmpeg-core.worker.js', 'text/javascript'),
-        });
-        
-        this.loaded = true;
-      } catch (error) {
-        console.error('Error loading FFmpeg:', error);
-        throw new Error('Failed to load FFmpeg');
+      let retries = 0;
+      while (retries < this.maxRetries) {
+        try {
+          const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.2/dist/umd';
+          
+          await this.ffmpeg.load({
+            coreURL: await toBlobURL(
+              `${baseURL}/ffmpeg-core.js`,
+              'text/javascript'
+            ),
+            wasmURL: await toBlobURL(
+              `${baseURL}/ffmpeg-core.wasm`,
+              'application/wasm'
+            ),
+            // workerURL: await toBlobURL(
+            //   `${baseURL}/ffmpeg-core.worker.js`,
+            //   'text/javascript'
+            // ),
+          });
+          
+          this.loaded = true;
+          break;
+        } catch (error) {
+          retries++;
+          if (retries === this.maxRetries) {
+            throw new Error('Failed to load FFmpeg after multiple attempts');
+          }
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
     }
   }
+
+
 
   async processVideo(file: File, onProgress: (progress: number) => void): Promise<string[]> {
     await this.load();
@@ -43,11 +64,13 @@ class FFmpegService {
 
     const command = [
       '-i', 'input.mp4',
-      '-vf', 'fps=1',
-      '-vsync', '0',
-      '-frame_pts', '1',
-      '-q:v', '2',
-      'frame-%d.jpg'
+        '-vf', 'fps=1',
+        '-vsync', '0',
+        '-frame_pts', '1',
+        '-q:v', '2',
+        '-threads', '4',  // Use multiple threads
+        '-report',        // Enable detailed logging
+        'frame-%d.jpg'
     ];
 
     await this.ffmpeg.exec(command);
