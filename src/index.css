@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+/* Self-hosted would be ideal, but a remote @import is blocked under COOP/COEP
+   isolation (the header FFmpeg requires) unless the font server sends CORP.
+   The system stack avoids a render-blocking third-party request entirely. */
+
+:root {
+  /* Warm Palette */
+  --color-bg: #fff8f2;
+  --color-bg-card: #ffffff;
+  --color-accent: #e8734a;
+  --color-accent-light: #f9a882;
+  --color-accent-bg: #fff0e8;
+  --color-accent-ring: rgba(232, 115, 74, 0.2);
+  --color-text-primary: #2d2d3a;
+  --color-text-secondary: #8a8a9a;
+  --color-text-accent: #e8734a;
+  --color-border: #f0e6de;
+  --color-success: #4caf50;
+  --color-danger: #e74c4c;
+
+  /* Typography */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #fff8f2 0%, #fff0e8 50%, #fff8f2 100%);
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-accent-light);
+  border-radius: 3px;
+}

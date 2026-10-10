@@ -1,0 +1,12 @@
+# FFmpeg's WASM build requires the document to be cross-origin isolated.
+# Without these headers SharedArrayBuffer is unavailable and the FFmpeg core
+# fails to load on any static host.
+/*
+  /:path/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: cross-origin
+
+# The 30MB core must be served as wasm, and never cached as HTML.
+  /ffmpeg/ffmpeg-core.wasm
+  Content-Type: application/wasm
