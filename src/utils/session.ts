@@ -87,7 +87,7 @@ export const sessionStore = {
     if (records.length === 0) return false;
 
     const session: StoredSession = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: CURRENT_KEY,
       savedAt: Date.now(),
       fileName: meta.fileName,
       duration: meta.duration,
@@ -99,8 +99,11 @@ export const sessionStore = {
     const db = await openDatabase();
     try {
       const tx = db.transaction(STORE, 'readwrite');
+      // Replace rather than accumulate. Writing under a fresh timestamped id as
+      // well as 'current' previously stored every Blob twice and left earlier
+      // sessions on disk forever, so repeated uploads exhausted the quota.
+      tx.objectStore(STORE).clear();
       tx.objectStore(STORE).put(session);
-      tx.objectStore(STORE).put({ ...session, id: CURRENT_KEY });
       await transactionDone(tx);
       return true;
     } catch (error) {
@@ -158,7 +161,12 @@ export const sessionStore = {
     }
   },
 
-  /** Removes everything except the current session. */
+  /**
+   * Drops stored sessions older than `days`.
+   *
+   * `save` now keeps only the current session, so this mainly exists for
+   * databases written by earlier versions that kept every capture.
+   */
   async pruneOlderThan(days: number): Promise<void> {
     try {
       const db = await openDatabase();

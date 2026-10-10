@@ -13,6 +13,15 @@ export class CancelledError extends Error {
 const INPUT = 'input.mp4';
 const OUT_DIR = '/frames';
 
+/**
+ * Frames produced per ffmpeg pass.
+ *
+ * MEMFS has a fixed ceiling; a single pass that writes every frame before any
+ * is read back is what stalled the tab on longer captures. Slicing the capture
+ * into chunks of this size keeps peak memory flat regardless of clip length.
+ */
+const CHUNK_FRAMES = 40;
+
 class FFmpegService {
   private ffmpeg: FFmpeg;
   private loaded = false;
@@ -136,6 +145,37 @@ class FFmpegService {
     await this.ffmpeg.deleteFile('raw.mp4').catch(() => undefined);
   }
 
+  /** Test helper: runs a raw ffmpeg command against the loaded core. */
+  async execRaw(args: string[]): Promise<number> {
+    await this.load();
+    return this.ffmpeg.exec(args);
+  }
+
+  /** Test helper: pulls a file out of MEMFS as a File. */
+  async takeRaw(name: string, type: string): Promise<File> {
+    await this.load();
+    const data = await this.ffmpeg.readFile(name);
+    return new File([data as BlobPart], name, { type });
+  }
+
+  /** Test helper: inspects MEMFS contents without disturbing the app. */
+  async inspectDir(path: string): Promise<{ name: string; isDir: boolean; size: number }[]> {
+    await this.load();
+    const entries = await this.ffmpeg.listDir(path).catch(() => []);
+    const out: { name: string; isDir: boolean; size: number }[] = [];
+    for (const e of entries) {
+      let size = 0;
+      if (!e.isDir) {
+        const data = await this.ffmpeg
+          .readFile(`${path === '/' ? '' : path}/${e.name}`)
+          .catch(() => null);
+        size = data instanceof Uint8Array ? data.byteLength : 0;
+      }
+      out.push({ name: e.name, isDir: e.isDir, size });
+    }
+    return out;
+  }
+
   /** Requests cancellation. The in-flight exec rejects and cleans up. */
   cancel(): void {
     this.controller?.abort();
@@ -208,46 +248,117 @@ class FFmpegService {
   ): Promise<Frame[]> {
     const start = Math.max(0, options.trimStart);
     const end = Math.min(duration, options.trimEnd ?? duration);
-    const span = end - start;
+    const span = Math.max(0, end - start);
 
-    const args: string[] = [];
-    // Only pass seek/trim flags when actually trimming. `-ss 0 -t 0` is
-    // degenerate and makes ffmpeg emit nothing.
-    if (start > 0) args.push('-ss', start.toFixed(3));
-    if (span > 0 && end < duration) args.push('-t', span.toFixed(3));
-
-    args.push('-i', INPUT, '-vf', `fps=${options.fps}`);
-    if (ext === 'jpg') args.push('-q:v', String(options.quality));
-    args.push(`${OUT_DIR}/f_%d.${ext}`);
-
-    this.trackProgress(onProgress, signal, total, start, end);
-
-    // Surface ffmpeg's own diagnostics: a silent "no frames" is impossible to
-    // debug otherwise, and the exec exit code alone rarely says why.
-    const recentLogs: string[] = [];
-    const logHandler = ({ message }: { message: string }) => {
-      recentLogs.push(message);
-      if (recentLogs.length > 40) recentLogs.shift();
-    };
-    this.ffmpeg.on('log', logHandler);
-
-    let code: number;
-    try {
-      code = await this.ffmpeg.exec(args, undefined, { signal });
-    } finally {
-      this.ffmpeg.off('log', logHandler);
+    if (span <= 0) {
+      throw new Error('The trim range is empty. Set an end time later than the start.');
     }
 
-    this.throwIfCancelled();
-    if (code !== 0) {
-      console.error('[ffmpeg] exec failed', code, args.join(' '), recentLogs.slice(-10));
-      throw new Error(`Failed to extract frames from the video (ffmpeg exit ${code}).`);
+    // MEMFS is a fixed-size in-memory filesystem, and writing every frame into it
+    // before reading any back is what made long captures stall the tab: the
+    // decode pass completes, the filesystem fills, and the worker stops
+    // responding with no error to show. Working in bounded time slices keeps
+    // peak usage flat and lets frames stream out as they are produced.
+    const chunkSeconds = Math.max(5, Math.ceil(CHUNK_FRAMES / options.fps));
+    const chunks: Array<{ from: number; to: number }> = [];
+    for (let cursor = start; cursor < end; cursor += chunkSeconds) {
+      chunks.push({ from: cursor, to: Math.min(end, cursor + chunkSeconds) });
     }
 
-    // `fps=N` guarantees evenly spaced output, so the timestamp of frame i is
-    // exactly start + i/N. Deriving it arithmetically avoids depending on
-    // `-frame_pts`, which this ffmpeg build silently ignores.
-    return this.collect(onProgress, ext, signal, start, options.fps);
+    const frames: Frame[] = [];
+
+    for (let c = 0; c < chunks.length; c++) {
+      this.throwIfCancelled();
+      const { from, to } = chunks[c];
+      // Frames are numbered from 1 by ffmpeg within each chunk; the absolute index
+      // is recovered from the timestamp once the sample grid is snapped.
+
+      const args: string[] = ['-i', INPUT];
+
+      // `-ss` and `-t` are both absolute positions in the input file, so they
+      // are measured from the start of the video, not from the trim point.
+      //
+      // Each chunk seeks a quarter of a frame *before* its window: `fps=N`
+      // samples from the first frame at or after the seek point, so landing
+      // exactly on the boundary drops the frame at that instant and a trim
+      // range loses its final second. Frames that fall before the window are
+      // discarded in collect(), which removes the duplication this causes.
+      const seekLead = 1 / (options.fps * 4);
+      const decodeStart = Math.max(0, from - seekLead);
+
+      if (decodeStart > 0) args.push('-ss', decodeStart.toFixed(3));
+      args.push('-t', (to - decodeStart).toFixed(3));
+      args.push('-vf', `fps=${options.fps}`);
+      if (ext === 'jpg') args.push('-q:v', String(options.quality));
+      args.push(`${OUT_DIR}/f_%d.${ext}`);
+
+      // Progress is measured across the whole capture, not per chunk. The slice
+      // keeps the running total strictly increasing and within 0-100.
+      const chunkShare = 70 / chunks.length;
+      this.trackProgress(
+        onProgress,
+        signal,
+        total,
+        from,
+        to,
+        5 + c * chunkShare,
+        Math.round(c * total / chunks.length)
+      );
+
+      const code = await this.ffmpeg.exec(args, undefined, { signal });
+      this.throwIfCancelled();
+
+      if (code !== 0) {
+        // A chunk that fails is usually memory pressure; surface it instead of
+        // silently returning a short capture that looks like success.
+        console.error('[ffmpeg] chunk failed', code, `window ${from}-${to}`, args.join(' '));
+        if (frames.length === 0) {
+          throw new Error(`Failed to extract frames from the video (ffmpeg exit ${code}).`);
+        }
+        break;
+      }
+
+      const collected = await this.collect(
+        (p) => onProgress(p),
+        ext,
+        signal,
+        from,
+        to,
+        options.fps,
+        total,
+        decodeStart
+      );
+      frames.push(...collected);
+
+      // Free each chunk immediately rather than holding every frame in MEMFS
+      // until the end of the capture.
+      await this.clearOutDir(signal);
+
+      onProgress({
+        phase: 'reading',
+        percentage: 5 + ((c + 1) / chunks.length) * 70,
+        currentFrame: frames.length,
+        totalFrames: total,
+      });
+    }
+
+    if (frames.length === 0) {
+      throw new Error('No frames could be extracted from the video.');
+    }
+
+    return frames.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /** Deletes everything currently in the output directory. */
+  private async clearOutDir(signal: AbortSignal): Promise<void> {
+    const entries = await this.ffmpeg
+      .listDir(OUT_DIR, { signal })
+      .catch(() => [] as { name: string; isDir: boolean }[]);
+    for (const entry of entries) {
+      if (!entry.isDir) {
+        await this.ffmpeg.deleteFile(`${OUT_DIR}/${entry.name}`, { signal }).catch(() => undefined);
+      }
+    }
   }
 
   /**
@@ -310,18 +421,19 @@ class FFmpegService {
     signal: AbortSignal,
     total: number,
     start: number,
-    end: number
+    end: number,
+    basePercentage: number,
+    baseCurrentFrame: number
   ) {
     const span = Math.max(0.001, end - start);
     const handler = ({ time }: { time: number }) => {
       if (signal.aborted) return;
       const seconds = Math.max(0, time / 1_000_000 - start);
       const ratio = Math.min(1, seconds / span);
-      const percentage = 5 + ratio * 70;
       onProgress({
         phase: 'decoding',
-        percentage,
-        currentFrame: Math.min(total, Math.round(ratio * total)),
+        percentage: Math.min(99, basePercentage + ratio * 70),
+        currentFrame: Math.min(total, Math.round(baseCurrentFrame + ratio * total)),
         totalFrames: total,
         timeRemaining: Math.max(0, Math.round((1 - ratio) * span * 0.5)),
       });
@@ -339,8 +451,14 @@ class FFmpegService {
     onProgress: (p: ProcessingProgress) => void,
     ext: string,
     signal: AbortSignal,
+    /** Start of this chunk's window; frames landing before it are dropped. */
     startOffset: number,
-    fps: number
+    /** Exclusive end of this chunk's window. */
+    windowEnd: number,
+    fps: number,
+    total: number,
+    /** Absolute time the seek started at, which anchors the sample grid. */
+    chunkSeekStart: number
   ): Promise<Frame[]> {
     const entries = await this.ffmpeg.listDir(OUT_DIR, { signal }).catch(() => [] as { name: string; isDir: boolean }[]);
     const names = entries
@@ -361,21 +479,39 @@ class FFmpegService {
       });
       if (!data || data === 'EOF') continue;
 
-      // Even fps spacing means index maps directly to time. Trim offset is added
-      // so labels reflect position in the source video, not in the trimmed range.
-      const index = Number(names[i].match(/_(\d+)\./)?.[1] ?? i);
+      // Even fps spacing means index maps directly to time. The chunk's start
+      // offset places the label in the source video, not in the trimmed range.
+      const index = Number(names[i].match(/_(\d+)\./)?.[1] ?? i + 1);
+
+      // `fps=N` samples on an exact grid anchored at the seek point, so the
+      // frame with index k sits at `seekStart + k/fps`. Snapping back onto the
+      // global grid (multiples of 1/fps from the capture start) removes the
+      // sub-frame error the overshoot would otherwise bake into every label.
+      const raw = chunkSeekStart + (index - 1) / fps;
+      const snapped = Math.round(raw * fps) / fps;
+
+      // Keep only frames belonging to this chunk's window. A half-frame tolerance on
+      // the upper bound includes the frame exactly at `windowEnd` (which the
+      // overshoot makes reachable) while still rejecting the next chunk's first
+      // frame, so seams neither duplicate nor drop.
+      const tolerance = 1 / (2 * fps);
+      if (snapped < startOffset - 1e-6 || snapped >= windowEnd + tolerance) {
+        continue;
+      }
+
+      const absolute = Math.round(snapped * fps);
 
       frames.push({
-        id: `frame-${i}`,
+        id: `frame-${absolute}-${snapped.toFixed(3)}`,
         url: URL.createObjectURL(new Blob([data as Uint8Array], { type: `image/${ext}` })),
-        timestamp: startOffset + index / fps,
+        timestamp: snapped,
       });
 
       onProgress({
         phase: 'reading',
-        percentage: 75 + ((i + 1) / Math.max(1, names.length)) * 25,
-        currentFrame: i + 1,
-        totalFrames: names.length,
+        percentage: Math.min(99, 5 + ((absolute + 1) / Math.max(1, total)) * 70),
+        currentFrame: absolute + 1,
+        totalFrames: total,
       });
     }
 
@@ -389,10 +525,7 @@ class FFmpegService {
   private async cleanup(signal: AbortSignal): Promise<void> {
     for (const detach of this.pendingDetachers.splice(0)) detach();
     await this.ffmpeg.deleteFile(INPUT, { signal }).catch(() => undefined);
-    const entries = await this.ffmpeg.listDir(OUT_DIR, { signal }).catch(() => [] as { name: string; isDir: boolean }[]);
-    for (const entry of entries) {
-      if (!entry.isDir) await this.ffmpeg.deleteFile(`${OUT_DIR}/${entry.name}`, { signal }).catch(() => undefined);
-    }
+    await this.clearOutDir(signal);
     await this.ffmpeg.deleteDir(OUT_DIR, { signal }).catch(() => undefined);
   }
 }
