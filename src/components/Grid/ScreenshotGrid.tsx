@@ -9,7 +9,10 @@ interface ScreenshotGridProps {
   frames: Frame[];
   duration: number;
   options: ProcessingOptions;
+  /** Set when these frames were restored from a previous visit. */
+  restored?: { fileName: string; frameCount: number } | null;
   onBack: () => void;
+  onDiscardRestored?: () => void;
 }
 
 async function zipAndDownload(frames: Frame[], filename: string, ext: string): Promise<void> {
@@ -32,7 +35,14 @@ async function zipAndDownload(frames: Frame[], filename: string, ext: string): P
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export const ScreenshotGrid: React.FC<ScreenshotGridProps> = ({ frames, duration, options, onBack }) => {
+export const ScreenshotGrid: React.FC<ScreenshotGridProps> = ({
+  frames,
+  duration,
+  options,
+  restored,
+  onBack,
+  onDiscardRestored,
+}) => {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -108,6 +118,23 @@ export const ScreenshotGrid: React.FC<ScreenshotGridProps> = ({ frames, duration
           <span>Filter</span>
         </button>
       </div>
+
+      {restored && (
+        <motion.div
+          className="restore-banner"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <span>
+            Restored your last session
+            {restored.fileName ? ` (${restored.fileName})` : ''} —{' '}
+            {restored.frameCount} frame{restored.frameCount === 1 ? '' : 's'} kept on this device.
+          </span>
+          {onDiscardRestored && (
+            <button onClick={onDiscardRestored}>Start fresh</button>
+          )}
+        </motion.div>
+      )}
 
       {filterOpen && (
         <div className="filter-panel">
@@ -197,6 +224,18 @@ export const ScreenshotGrid: React.FC<ScreenshotGridProps> = ({ frames, duration
 
       <style>{`
         .gallery-wrapper { padding: 16px; max-width: 800px; margin: 0 auto; width: 100%; padding-bottom: 140px; }
+        .restore-banner {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px;
+          background: #FFF0E8; border: 1px solid #FDDCC8; border-radius: 14px;
+          padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: #8A5A3C;
+          flex-wrap: wrap;
+        }
+        .restore-banner button {
+          border: 1px solid #E8734A; background: #fff; color: #E8734A;
+          border-radius: 20px; padding: 6px 14px; font-size: 12px;
+          font-weight: 600; cursor: pointer; flex-shrink: 0;
+        }
+        .restore-banner button:hover { background: #E8734A; color: #fff; }
         .gallery-header {
           display: flex; align-items: center; justify-content: space-between;
           margin-bottom: 24px; padding-top: 8px;

@@ -7,6 +7,7 @@ import { validateVideo } from '../utils/validators';
 import { CancelledError, ffmpegService } from '../utils/ffmpeg';
 import { dedupeFrames } from '../utils/dedupe';
 import { loadOptions, saveOptions } from '../utils/settings';
+import { sessionStore } from '../utils/session';
 import { ScreenshotGrid } from './Grid/ScreenshotGrid';
 import { SettingsPanel } from './Settings/SettingsPanel';
 
@@ -29,6 +30,7 @@ export const VideoUploader: React.FC = () => {
   });
   const [dragOver, setDragOver] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [restored, setRestored] = useState<{ fileName: string; frameCount: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const framesRef = useRef<string[]>([]);
 
@@ -38,6 +40,39 @@ export const VideoUploader: React.FC = () => {
     framesRef.current.forEach((url) => URL.revokeObjectURL(url));
     framesRef.current = [];
   }, []);
+
+  // Offer the previous capture back on load rather than silently discarding it.
+  useEffect(() => {
+    let cancelled = false;
+    sessionStore
+      .loadCurrent()
+      .then((result) => {
+        if (!result || cancelled) return;
+        releaseFrames();
+        framesRef.current = result.frames.map((f) => f.url);
+        setState({
+          file: null,
+          duration: result.session.duration,
+          processing: false,
+          frames: result.frames,
+          error: null,
+        });
+        setRestored({ fileName: result.session.fileName, frameCount: result.frames.length });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [releaseFrames]);
+
+  const dismissRestore = useCallback(async () => {
+    setRestored(null);
+    releaseFrames();
+    setState(initialState);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    await sessionStore.clear();
+  }, [releaseFrames]);
 
   useEffect(() => releaseFrames, [releaseFrames]);
 
@@ -105,6 +140,11 @@ export const VideoUploader: React.FC = () => {
       }
 
       setState({ file, duration, processing: false, frames, error: null });
+      setRestored(null);
+
+      // Persist so a reload does not cost the user a re-run. Failures are
+      // non-fatal: the frames are already in memory.
+      void sessionStore.save(frames, { fileName: file.name, duration, options });
     } catch (error) {
       if (error instanceof CancelledError) {
         releaseFrames();
@@ -132,6 +172,7 @@ export const VideoUploader: React.FC = () => {
   const resetToUpload = () => {
     releaseFrames();
     setState(initialState);
+    setRestored(null);
     setProgress({ phase: 'loading', percentage: 0, currentFrame: 0, totalFrames: 0 });
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -147,7 +188,9 @@ export const VideoUploader: React.FC = () => {
         frames={state.frames}
         duration={state.duration}
         options={options}
+        restored={restored}
         onBack={resetToUpload}
+        onDiscardRestored={dismissRestore}
       />
     );
   }

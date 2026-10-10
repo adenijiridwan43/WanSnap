@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# The 30MB FFmpeg core is not content and should not be crawled.
+Disallow: /ffmpeg/

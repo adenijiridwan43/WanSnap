@@ -29,7 +29,13 @@ export default defineConfig({
   build: {
     target: 'es2022',
     rollupOptions: {
+      input: {
+        main: 'index.html',
+        // Emitted as sw.js, matching the registration URL in src/utils/pwa.ts.
+        sw: 'src/sw.ts'
+      },
       output: {
+        entryFileNames: (chunk) => (chunk.name === 'sw' ? 'sw.js' : 'assets/[name]-[hash].js'),
         manualChunks: {
           ffmpeg: ['@ffmpeg/ffmpeg', '@ffmpeg/util']
         }
