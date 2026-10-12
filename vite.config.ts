@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// FFmpeg's multi-threaded WASM build needs the page to be cross-origin isolated.
-// These headers are what enable `SharedArrayBuffer`; without them FFmpeg silently
-// fails to load in preview and in production.
+// The bundled core is the single-threaded `@ffmpeg/core`, which does not use
+// SharedArrayBuffer and therefore does not require cross-origin isolation. These
+// headers are still set because they cost nothing and are what a multi-threaded
+// core (or a host that strips them) would need.
 const crossOriginIsolation = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -14,6 +15,9 @@ const crossOriginIsolation = {
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
+  // Deployed under a subpath on GitHub Pages (/WanSnap/), which is the root of
+  // that deployment. Set BASE_PATH by the deploy workflow; local dev stays "/".
+  base: process.env.BASE_PATH ?? '/',
   plugins: [react(), tailwindcss()],
   optimizeDeps: {
     exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', '@ffmpeg/core']

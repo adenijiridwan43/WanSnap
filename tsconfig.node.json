@@ -18,7 +18,10 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    // The config file runs in Node and reads BASE_PATH for the deploy subpath.
+    "types": ["node"]
   },
   "include": ["vite.config.ts"]
 }

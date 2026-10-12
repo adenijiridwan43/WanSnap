@@ -1,6 +1,10 @@
 // src/utils/pwa.ts
 
-const SW_URL = '/sw.js';
+// BASE_URL so the worker resolves correctly when the app is served from a
+// subpath, e.g. https://adenijiridwan43.github.io/WanSnap/.
+const BASE = import.meta.env.BASE_URL;
+const SW_URL = `${BASE}sw.js`;
+const SW_SCOPE = BASE;
 
 /**
  * Registers the service worker.
@@ -17,7 +21,7 @@ export function registerServiceWorker(): void {
 
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register(SW_URL, { scope: '/' })
+      .register(SW_URL, { scope: SW_SCOPE })
       .then((registration) => {
         console.log('[pwa] service worker registered', registration.scope);
       })

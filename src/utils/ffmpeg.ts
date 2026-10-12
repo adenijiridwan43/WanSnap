@@ -73,7 +73,9 @@ class FFmpegService {
     // unavailable and the core is pulled in via `await import()`. That only works
     // with the ESM build - the UMD build has no default export and fails with
     // "failed to import ffmpeg-core.js".
-    const base = `${window.location.origin}/ffmpeg`;
+    // BASE_URL keeps this correct under a subpath deploy (GitHub Pages serves
+    // the app from /WanSnap/, not from the origin root).
+    const base = `${window.location.origin}${import.meta.env.BASE_URL}ffmpeg`;
     const cdn = 'https://unpkg.com/@ffmpeg/core@0.12.2/dist/esm';
 
     const attempt = async (root: string) => {

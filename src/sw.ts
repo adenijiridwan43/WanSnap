@@ -20,7 +20,12 @@ const CACHE_VERSION = 'v1';
 const SHELL_CACHE = `wansnap-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `wansnap-runtime-${CACHE_VERSION}`;
 
-const SHELL_ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg'];
+// BASE_URL is substituted at build time, so the worker precaches the right
+// paths whether the app is served from "/" or from a subpath such as "/WanSnap/".
+const BASE = import.meta.env.BASE_URL;
+const INDEX_URL = `${BASE}index.html`;
+
+const SHELL_ASSETS = [BASE, INDEX_URL, `${BASE}manifest.webmanifest`, `${BASE}favicon.svg`];
 
 // Never intercept these: they must always reflect the current build.
 const BYPASS = ['/@vite', '/@react-refresh', '/@id', '/src/', '/__vite'];
@@ -78,11 +83,11 @@ self.addEventListener('fetch', (event) => {
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          void caches.open(SHELL_CACHE).then((cache) => cache.put('/index.html', copy));
+          void caches.open(SHELL_CACHE).then((cache) => cache.put(INDEX_URL, copy));
           return response;
         })
         .catch(async () => {
-          const cached = await caches.match('/index.html');
+          const cached = await caches.match(INDEX_URL);
           return cached ?? Response.error();
         })
     );
@@ -107,7 +112,7 @@ self.addEventListener('fetch', (event) => {
             }
             return response;
           })
-          .catch(() => caches.match('/index.html').then((fallback) => fallback ?? Response.error()))
+          .catch(() => caches.match(INDEX_URL).then((fallback) => fallback ?? Response.error()))
     )
   );
 });

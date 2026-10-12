@@ -20,7 +20,12 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    // Browser code must not see Node globals. Without this, installing
+    // @types/node for vite.config.ts would silently add `process` and friends
+    // to src/, where they do not exist at runtime.
+    "types": []
   },
   "include": ["src"]
 }

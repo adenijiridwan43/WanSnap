@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Replace wansnap.app with the real domain before going live. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://wansnap.app/</loc>
+    <loc>https://adenijiridwan43.github.io/WanSnap/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
