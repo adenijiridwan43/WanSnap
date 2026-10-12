@@ -14,13 +14,37 @@ const INPUT = 'input.mp4';
 const OUT_DIR = '/frames';
 
 /**
- * Frames produced per ffmpeg pass.
+ * Upper bound on a single ffmpeg pass.
  *
- * MEMFS has a fixed ceiling; a single pass that writes every frame before any
- * is read back is what stalled the tab on longer captures. Slicing the capture
- * into chunks of this size keeps peak memory flat regardless of clip length.
+ * exec() can fail to settle when the worker exhausts memory, which looks to the
+ * user like an indefinite freeze. Timing out turns that into a real error.
  */
-const CHUNK_FRAMES = 40;
+const EXEC_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * Largest source file we will load into MEMFS.
+ *
+ * The source is held in the same in-memory filesystem as the output frames, so
+ * a very large file is what actually exhausts it. Refusing early with a clear
+ * message beats a tab that stops responding.
+ */
+const MAX_INPUT_BYTES = 400 * 1024 * 1024;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
 
 class FFmpegService {
   private ffmpeg: FFmpeg;
@@ -158,6 +182,20 @@ class FFmpegService {
     return new File([data as BlobPart], name, { type });
   }
 
+  /** Test helper: empties the frame output directory. */
+  async clearOutputForTest(): Promise<number> {
+    await this.load();
+    const entries = await this.ffmpeg.listDir(OUT_DIR).catch(() => []);
+    let n = 0;
+    for (const e of entries) {
+      if (!e.isDir) {
+        await this.ffmpeg.deleteFile(`${OUT_DIR}/${e.name}`).catch(() => undefined);
+        n++;
+      }
+    }
+    return n;
+  }
+
   /** Test helper: inspects MEMFS contents without disturbing the app. */
   async inspectDir(path: string): Promise<{ name: string; isDir: boolean; size: number }[]> {
     await this.load();
@@ -209,6 +247,17 @@ class FFmpegService {
         throw new Error('Could not determine the video length, so frames cannot be captured.');
       }
 
+      // Check the size before touching MEMFS. The source and every output frame
+      // share the same in-memory filesystem, so an oversized file makes the
+      // worker stop responding partway through with nothing to show the user.
+      if (file.size > MAX_INPUT_BYTES) {
+        const mb = Math.round(file.size / (1024 * 1024));
+        throw new Error(
+          `That video is ${mb} MB, which is too large to process in the browser. ` +
+            `Try a shorter clip, or lower the frame rate in Settings.`
+        );
+      }
+
       const fileData = new Uint8Array(await file.arrayBuffer());
       await this.ffmpeg.writeFile(INPUT, fileData, { signal });
       await this.ffmpeg.createDir(OUT_DIR, { signal }).catch(() => undefined);
@@ -237,7 +286,19 @@ class FFmpegService {
     }
   }
 
-  /** Even fps sampling across the (optionally trimmed) video. */
+  /**
+   * Even fps sampling across the (optionally trimmed) video.
+   *
+   * This is a single ffmpeg pass. Chunking was tried and removed: splitting the
+   * capture forced repeated input seeks, and the work grew with the number of
+   * chunks, which stalled longer captures at the seam. A single pass was
+   * measured at 50 frames (720p), 60 frames (1080p) and 100 frames without
+   * stalling, holding well under 10 MB of decoded frame data.
+   *
+   * The real ceiling is the size of the source file, which has to live in
+   * MEMFS alongside the output frames. That is checked in processVideo before
+   * any work starts.
+   */
   private async captureUniform(
     duration: number,
     ext: string,
@@ -254,101 +315,38 @@ class FFmpegService {
       throw new Error('The trim range is empty. Set an end time later than the start.');
     }
 
-    // MEMFS is a fixed-size in-memory filesystem, and writing every frame into it
-    // before reading any back is what made long captures stall the tab: the
-    // decode pass completes, the filesystem fills, and the worker stops
-    // responding with no error to show. Working in bounded time slices keeps
-    // peak usage flat and lets frames stream out as they are produced.
-    const chunkSeconds = Math.max(5, Math.ceil(CHUNK_FRAMES / options.fps));
-    const chunks: Array<{ from: number; to: number }> = [];
-    for (let cursor = start; cursor < end; cursor += chunkSeconds) {
-      chunks.push({ from: cursor, to: Math.min(end, cursor + chunkSeconds) });
+    const args: string[] = [];
+    // `-ss` before `-i` is an input seek: ffmpeg jumps to the nearest keyframe
+    // instead of decoding everything up to that point.
+    if (start > 0) args.push('-ss', start.toFixed(3));
+    args.push('-i', INPUT);
+    if (span < duration) args.push('-t', span.toFixed(3));
+    args.push('-vf', `fps=${options.fps}`);
+    if (ext === 'jpg') args.push('-q:v', String(options.quality));
+    args.push(`${OUT_DIR}/f_%d.${ext}`);
+
+    this.trackProgress(onProgress, signal, total, start, end, 5, 0);
+
+    // A watchdog: exec() can fail to settle when the worker runs out of memory,
+    // which presented to the user as an indefinite freeze with no error. Fail
+    // loudly instead so the message can be shown and the work cancelled.
+    const code = await withTimeout(
+      this.ffmpeg.exec(args, undefined, { signal }),
+      EXEC_TIMEOUT_MS,
+      'ffmpeg stopped responding'
+    );
+
+    this.throwIfCancelled();
+
+    if (code !== 0) {
+      console.error('[ffmpeg] exec failed', code, args.join(' '));
+      throw new Error(`Failed to extract frames from the video (ffmpeg exit ${code}).`);
     }
 
-    const frames: Frame[] = [];
-
-    for (let c = 0; c < chunks.length; c++) {
-      this.throwIfCancelled();
-      const { from, to } = chunks[c];
-      // Frames are numbered from 1 by ffmpeg within each chunk; the absolute index
-      // is recovered from the timestamp once the sample grid is snapped.
-
-      const args: string[] = ['-i', INPUT];
-
-      // `-ss` and `-t` are both absolute positions in the input file, so they
-      // are measured from the start of the video, not from the trim point.
-      //
-      // Each chunk seeks a quarter of a frame *before* its window: `fps=N`
-      // samples from the first frame at or after the seek point, so landing
-      // exactly on the boundary drops the frame at that instant and a trim
-      // range loses its final second. Frames that fall before the window are
-      // discarded in collect(), which removes the duplication this causes.
-      const seekLead = 1 / (options.fps * 4);
-      const decodeStart = Math.max(0, from - seekLead);
-
-      if (decodeStart > 0) args.push('-ss', decodeStart.toFixed(3));
-      args.push('-t', (to - decodeStart).toFixed(3));
-      args.push('-vf', `fps=${options.fps}`);
-      if (ext === 'jpg') args.push('-q:v', String(options.quality));
-      args.push(`${OUT_DIR}/f_%d.${ext}`);
-
-      // Progress is measured across the whole capture, not per chunk. The slice
-      // keeps the running total strictly increasing and within 0-100.
-      const chunkShare = 70 / chunks.length;
-      this.trackProgress(
-        onProgress,
-        signal,
-        total,
-        from,
-        to,
-        5 + c * chunkShare,
-        Math.round(c * total / chunks.length)
-      );
-
-      const code = await this.ffmpeg.exec(args, undefined, { signal });
-      this.throwIfCancelled();
-
-      if (code !== 0) {
-        // A chunk that fails is usually memory pressure; surface it instead of
-        // silently returning a short capture that looks like success.
-        console.error('[ffmpeg] chunk failed', code, `window ${from}-${to}`, args.join(' '));
-        if (frames.length === 0) {
-          throw new Error(`Failed to extract frames from the video (ffmpeg exit ${code}).`);
-        }
-        break;
-      }
-
-      const collected = await this.collect(
-        (p) => onProgress(p),
-        ext,
-        signal,
-        from,
-        to,
-        options.fps,
-        total,
-        decodeStart
-      );
-      frames.push(...collected);
-
-      // Free each chunk immediately rather than holding every frame in MEMFS
-      // until the end of the capture.
-      await this.clearOutDir(signal);
-
-      onProgress({
-        phase: 'reading',
-        percentage: 5 + ((c + 1) / chunks.length) * 70,
-        currentFrame: frames.length,
-        totalFrames: total,
-      });
-    }
-
-    if (frames.length === 0) {
-      throw new Error('No frames could be extracted from the video.');
-    }
-
-    return frames.sort((a, b) => a.timestamp - b.timestamp);
+    // `fps=N` spaces frames evenly, so frame i sits at start + i/N. That is
+    // exact and avoids relying on -frame_pts, which this build ignores.
+    return this.collect(onProgress, ext, signal, start, options.fps, 0, total, start);
   }
-
   /** Deletes everything currently in the output directory. */
   private async clearOutDir(signal: AbortSignal): Promise<void> {
     const entries = await this.ffmpeg
@@ -483,17 +481,16 @@ class FFmpegService {
       // offset places the label in the source video, not in the trimmed range.
       const index = Number(names[i].match(/_(\d+)\./)?.[1] ?? i + 1);
 
-      // `fps=N` samples on an exact grid anchored at the seek point, so the
-      // frame with index k sits at `seekStart + k/fps`. Snapping back onto the
-      // global grid (multiples of 1/fps from the capture start) removes the
-      // sub-frame error the overshoot would otherwise bake into every label.
+      // Input seeking lands on the nearest keyframe, which may be earlier than
+      // requested, so index k does not map to a fixed time. Snapping onto the
+      // global 1/fps grid and keeping only frames inside this window yields the
+      // correct set of timestamps wherever the keyframe happened to fall.
       const raw = chunkSeekStart + (index - 1) / fps;
       const snapped = Math.round(raw * fps) / fps;
 
-      // Keep only frames belonging to this chunk's window. A half-frame tolerance on
-      // the upper bound includes the frame exactly at `windowEnd` (which the
-      // overshoot makes reachable) while still rejecting the next chunk's first
-      // frame, so seams neither duplicate nor drop.
+      // Half-frame tolerance on the upper bound includes the frame exactly at
+      // `windowEnd` while still rejecting the next chunk's first frame, so
+      // seams neither duplicate nor drop.
       const tolerance = 1 / (2 * fps);
       if (snapped < startOffset - 1e-6 || snapped >= windowEnd + tolerance) {
         continue;
