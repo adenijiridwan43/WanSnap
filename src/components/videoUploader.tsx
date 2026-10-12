@@ -378,6 +378,53 @@ export const VideoUploader: React.FC = () => {
         {options.dedupe && <span className="pill pill--brand">Similar frames removed</span>}
       </footer>
 
+      {/* Why this exists, stated before anything else competes for attention.
+          The three points are the reasons a visitor picks this over an upload
+          form, so they answer the actual objection rather than describing
+          features. */}
+      <section className="perks" aria-label="Why WanSnap">
+        <h2 className="perks__title">Why WanSnap</h2>
+        <ul className="perks__list">
+          <li className="perk">
+            <span className="perk__icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="10" width="16" height="11" rx="2" />
+                <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+              </svg>
+            </span>
+            <h3 className="perk__name">Never uploaded</h3>
+            <p className="perk__desc">
+              Your video is processed on this device. Nothing is sent to a server, so private
+              footage stays private.
+            </p>
+          </li>
+          <li className="perk">
+            <span className="perk__icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13 2 4.1 12.6a1 1 0 0 0 .8 1.6H11l-1 8 8.9-10.6a1 1 0 0 0-.8-1.6H12z" />
+              </svg>
+            </span>
+            <h3 className="perk__name">Instant</h3>
+            <p className="perk__desc">
+              No upload queue and no waiting on a server. Frames appear as soon as the video is
+              decoded.
+            </p>
+          </li>
+          <li className="perk">
+            <span className="perk__icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            </span>
+            <h3 className="perk__name">Free and clean</h3>
+            <p className="perk__desc">
+              No account, no watermark, no usage limit. Grab the frames you need and get on with
+              it.
+            </p>
+          </li>
+        </ul>
+      </section>
+
       <SettingsPanel
         open={settingsOpen}
         options={options}

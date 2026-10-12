@@ -298,7 +298,7 @@
   position: fixed;
   left: var(--space-4);
   right: var(--space-4);
-  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
   z-index: var(--z-selection-bar);
   max-width: 520px;
   margin: 0 auto;
