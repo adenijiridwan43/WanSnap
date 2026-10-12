@@ -231,9 +231,9 @@ export const VideoUploader: React.FC = () => {
 
       <motion.section
         className="hero"
-        initial={{ opacity: 0, y: 16 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       >
         <h1 className="hero__title">
           Ready to create
@@ -248,9 +248,11 @@ export const VideoUploader: React.FC = () => {
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        initial={{ opacity: 0, y: 24 }}
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+        // Kept short: a long fade leaves the upload plate looking broken to
+        // anyone who loads the page and glances away immediately.
+        transition={{ duration: 0.3, delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
         role="region"
         aria-label="Video upload area"
       >

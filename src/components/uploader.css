@@ -1,6 +1,11 @@
 /* src/components/uploader.css - the upload screen */
 
+/* Single-column reads well on a phone, but on a wide screen a 560px column
+   stranded in the middle looks broken rather than centred. The upload plate
+   and hero widen together so the page fills a laptop and still scales down. */
 .page--upload {
+  --measure: 560px;
+
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -12,7 +17,7 @@
 
 .topbar {
   width: 100%;
-  max-width: 560px;
+  max-width: var(--measure);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -64,7 +69,7 @@
 
 .hero {
   width: 100%;
-  max-width: 560px;
+  max-width: var(--measure);
   text-align: center;
   margin-bottom: var(--space-8);
 }
@@ -91,7 +96,7 @@
 .dropzone {
   position: relative;
   width: 100%;
-  max-width: 560px;
+  max-width: var(--measure);
   padding: var(--space-10) var(--space-5) var(--space-6);
   text-align: center;
   background: var(--surface);
@@ -201,7 +206,7 @@
 
 .alert {
   width: 100%;
-  max-width: 560px;
+  max-width: var(--measure);
   margin-top: var(--space-4);
   padding: var(--space-3) var(--space-4);
   text-align: center;
@@ -337,7 +342,7 @@
 
 .perks {
   width: 100%;
-  max-width: 560px;
+  max-width: var(--measure);
   margin-top: var(--space-10);
   padding-top: var(--space-8);
   border-top: 1px solid var(--border);
@@ -395,10 +400,15 @@
   line-height: 1.55;
 }
 
-/* --- Responsive ------------------------------------------------------- */
+/* --- Responsive ------------------------------------------------------- *
+   The measure grows at each breakpoint. A single narrow column centred in a
+   laptop viewport reads as an unfinished page, so the layout uses the width
+   it is given instead of staying at phone size. */
 
 @media (min-width: 768px) {
   .page--upload {
+    --measure: 640px;
+
     padding: var(--space-8) 0 var(--space-12);
   }
 
@@ -412,5 +422,44 @@
 
   .dropzone {
     padding: var(--space-12) var(--space-8) var(--space-8);
+  }
+}
+
+@media (min-width: 1024px) {
+  .page--upload {
+    --measure: 760px;
+
+    /* On a laptop the content is shorter than the viewport, which leaves a void
+       under it. Centring the column fills the space without detaching the
+       header, which an absolute top bar did. */
+    justify-content: center;
+    min-height: 100%;
+    padding: var(--space-8) 0 var(--space-8);
+  }
+}
+
+/* At the widest sizes the value props sit side by side rather than as a tall
+   single column, which keeps the page from outgrowing the viewport. */
+@media (min-width: 900px) {
+  .perks__list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-5);
+  }
+
+  .perk {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "icon"
+      "name"
+      "desc";
+    row-gap: var(--space-3);
+    padding: var(--space-5);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  .perk__name {
+    align-self: start;
   }
 }
