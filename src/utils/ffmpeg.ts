@@ -115,29 +115,36 @@ class FFmpegService {
    */
   async probeDuration(file: File): Promise<number | null> {
     await this.load();
-    await this.ffmpeg.writeFile('probe.mp4', new Uint8Array(await file.arrayBuffer()));
 
-    // This core build ships without ffprobe, so the duration is taken from
-    // ffmpeg's own stderr banner ("Duration: 00:00:08.00") instead.
+    // Keep the original extension. Writing every file as probe.mp4 is a lie
+    // ffmpeg has to work around, and some demuxers refuse on it.
+    const ext = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : 'mp4';
+    const name = `probe.${ext}`;
+    await this.ffmpeg.writeFile(name, new Uint8Array(await file.arrayBuffer()));
+
+    // This core build ships without ffprobe, so the duration is read from
+    // ffmpeg's own stderr banner, e.g. "Duration: 00:00:08.98".
     let duration: number | null = null;
     const handler = ({ message }: { message: string }) => {
-      const match = message.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+      if (duration !== null) return;
+      const match = message.match(/Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/);
       if (!match) return;
-      const [, h, m, s] = match;
-      duration = Number(h) * 3600 + Number(m) * 60 + Number(s);
+      const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+      if (Number.isFinite(seconds) && seconds > 0) duration = seconds;
     };
 
     this.ffmpeg.on('log', handler);
     try {
-      // Decoding a single frame is enough to make ffmpeg print the header.
-      await this.ffmpeg.exec(['-i', 'probe.mp4', '-frames:v', '1', '-f', 'null', '-']);
-      return duration && duration > 0 ? duration : null;
+      // Decoding a single frame is enough for ffmpeg to print the header, and
+      // the null muxer discards the output so nothing is written.
+      await this.ffmpeg.exec(['-i', name, '-frames:v', '1', '-f', 'null', '-']);
+      return duration;
     } catch (error) {
-      console.warn('[ffmpeg] probeDuration failed:', error);
+      console.warn('[ffmpeg] probeDuration exec failed:', error);
       return null;
     } finally {
       this.ffmpeg.off('log', handler);
-      await this.ffmpeg.deleteFile('probe.mp4').catch(() => undefined);
+      await this.ffmpeg.deleteFile(name).catch(() => undefined);
     }
   }
 
@@ -173,6 +180,24 @@ class FFmpegService {
   async execRaw(args: string[]): Promise<number> {
     await this.load();
     return this.ffmpeg.exec(args);
+  }
+
+  /** Test helper: captures ffmpeg's stderr log while running a command. */
+  async execRawWithLogs(args: string[], onLog: (message: string) => void): Promise<number> {
+    await this.load();
+    const handler = ({ message }: { message: string }) => onLog(message);
+    this.ffmpeg.on('log', handler);
+    try {
+      return await this.ffmpeg.exec(args);
+    } finally {
+      this.ffmpeg.off('log', handler);
+    }
+  }
+
+  /** Test helper: writes raw bytes into MEMFS. */
+  async writeRaw(name: string, data: Uint8Array): Promise<void> {
+    await this.load();
+    await this.ffmpeg.writeFile(name, data);
   }
 
   /** Test helper: pulls a file out of MEMFS as a File. */

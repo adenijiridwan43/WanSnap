@@ -15,9 +15,15 @@ export async function probeDurationWithFFmpeg(file: File): Promise<number | null
   try {
     await ffmpegService.load();
     const seconds = await ffmpegService.probeDuration(file);
-    return seconds && seconds > 0 ? seconds : null;
+    if (seconds && seconds > 0) return seconds;
+
+    // A null here means ffmpeg ran but printed no Duration banner, which
+    // happens when the container is one it cannot demux. Say so rather than
+    // leaving the user with a misleading "try a different file".
+    console.warn('[validators] ffmpeg could not read a duration from', file.name, file.type);
+    return null;
   } catch (error) {
-    console.warn('[validators] ffprobe fallback failed:', error);
+    console.warn('[validators] ffmpeg duration probe failed:', error);
     return null;
   }
 }
@@ -93,11 +99,16 @@ export const validateVideo = async ({
   }
 
   if (metadata.duration <= 0) {
-    // The browser could not read the length. Try ffprobe before giving up, since
-    // rejecting here would lock out files ffmpeg can still process fine.
+    // The browser could not read the length. Try ffmpeg before giving up, since
+    // rejecting here would lock out files it can still process fine.
     const probed = await probeDurationWithFFmpeg(file);
     if (probed === null) {
-      return { isValid: false, error: 'Could not determine the video length. Try a different file.' };
+      return {
+        isValid: false,
+        error:
+          'This video could not be read. It may use a codec this browser does not support, ' +
+          'or the file may be incomplete. Try exporting it as MP4 (H.264).',
+      };
     }
     metadata = { ...metadata, duration: probed };
   }
