@@ -121,6 +121,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   id="fps"
                   ref={firstFieldRef}
                   type="number"
+                  className="input"
                   min={LIMITS.fps.min}
                   max={LIMITS.fps.max}
                   step="0.5"
@@ -151,6 +152,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 <input
                   id="quality"
                   type="range"
+                  className="range"
                   min={LIMITS.quality.min}
                   max={LIMITS.quality.max}
                   value={draft.quality}
@@ -169,7 +171,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   {FORMATS.map((format) => (
                     <button
                       key={format}
-                      className={draft.format === format ? 'active' : ''}
+                      type="button"
+                      className={draft.format === format ? 'is-active' : ''}
                       onClick={() => patch({ format })}
                     >
                       {format.toUpperCase()}
@@ -184,6 +187,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <input
                     id="maxDuration"
                     type="number"
+                    className="input"
                     min={LIMITS.maxDuration.min}
                     max={LIMITS.maxDuration.max}
                     step="10"
@@ -201,6 +205,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <input
                     id="maxFrames"
                     type="number"
+                    className="input"
                     min={LIMITS.maxFrames.min}
                     max={LIMITS.maxFrames.max}
                     step="10"
@@ -220,6 +225,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <div className="inline-row">
                     <input
                       type="number"
+                      className="input"
                       min={0}
                       max={duration}
                       step="0.1"
@@ -232,6 +238,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     <span className="unit">to</span>
                     <input
                       type="number"
+                      className="input"
                       min={0}
                       max={duration}
                       step="0.1"
@@ -250,7 +257,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
               <section className="field">
                 <label htmlFor="stamps">Custom timestamps</label>
-                <p className="hint" style={{ marginTop: 0 }}>
+                <p className="hint">
                   Add specific moments to capture instead of sampling evenly. Enter seconds or
                   m:ss, separated by commas. Up to {MAX_CUSTOM_STAMPS}.
                 </p>
@@ -258,6 +265,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <input
                     id="stamps"
                     type="text"
+                    className="input"
                     placeholder="0:05, 1:20, 2:45"
                     value={stampText}
                     onChange={(e) => setStampText(e.target.value)}
@@ -268,19 +276,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       }
                     }}
                   />
-                  <button className="small-btn" onClick={addStamps}>
+                  <button type="button" className="small-btn" onClick={addStamps}>
                     Add
                   </button>
                 </div>
                 {(draft.customTimestamps ?? []).length > 0 && (
                   <div className="stamp-list">
                     {(draft.customTimestamps ?? []).map((stamp) => (
-                      <button key={stamp} className="chip" onClick={() => removeStamp(stamp)}>
+                      <button key={stamp} type="button" className="chip" onClick={() => removeStamp(stamp)}>
                         {formatClock(stamp)} <FiX size={12} />
                       </button>
                     ))}
                     <button
-                      className="chip clear"
+                      type="button"
+                      className="chip chip--clear"
                       onClick={() => patch({ customTimestamps: null })}
                     >
                       Clear all
@@ -288,7 +297,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   </div>
                 )}
                 {draft.customTimestamps && (
-                  <p className="hint warn">
+                  <p className="hint hint--warn">
                     Custom timestamps are active, so even fps sampling is skipped.
                   </p>
                 )}
@@ -301,14 +310,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     checked={draft.dedupe}
                     onChange={(e) => patch({ dedupe: e.target.checked })}
                   />
-                  <span>
-                    <strong>Remove similar frames</strong>
-                    <em>Keeps only visually distinct shots. Static scenes produce far fewer frames.</em>
+                  <span className="switch-row__text">
+                    <span className="switch-row__title">Remove similar frames</span>
+                    <span className="switch-row__desc">
+                      Keeps only visually distinct shots. Static scenes produce far fewer frames.
+                    </span>
                   </span>
                 </label>
                 {draft.dedupe && (
                   <input
                     type="range"
+                    className="range"
                     min={0}
                     max={0.15}
                     step={0.005}
@@ -321,11 +333,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
 
             <footer className="settings-footer">
-              <button className="ghost-btn" onClick={reset}>
-                <FiRotateCcw size={16} /> Reset
+              <button type="button" className="btn-ghost" onClick={reset}>
+                <FiRotateCcw size={15} /> Reset
               </button>
               <button
-                className="primary-btn"
+                type="button"
+                className="btn-brand"
                 onClick={() => {
                   const sanitised = {
                     ...draft,

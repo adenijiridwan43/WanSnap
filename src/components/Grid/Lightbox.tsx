@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiX, FiChevronLeft, FiChevronRight, FiDownload } from 'react-icons/fi';
 import { Frame, formatClock } from '../../types';
+import '../Lightbox.css';
 
 interface LightboxProps {
   frames: Frame[];
@@ -103,51 +104,52 @@ export const Lightbox: React.FC<LightboxProps> = ({
             onClick={(e) => e.stopPropagation()}
           />
 
-          <button className="lightbox-close" onClick={onClose} aria-label="Close">
+          <button className="lightbox__control lightbox__close" onClick={onClose} aria-label="Close">
             <FiX size={22} />
           </button>
 
           {frames.length > 1 && (
             <>
               <button
-                className="lightbox-nav left"
+                className="lightbox__control lightbox__nav lightbox__nav--prev"
                 onClick={(e) => {
                   e.stopPropagation();
                   go(-1);
                 }}
                 aria-label="Previous frame"
               >
-                <FiChevronLeft size={28} />
+                <FiChevronLeft size={26} />
               </button>
               <button
-                className="lightbox-nav right"
+                className="lightbox__control lightbox__nav lightbox__nav--next"
                 onClick={(e) => {
                   e.stopPropagation();
                   go(1);
                 }}
                 aria-label="Next frame"
               >
-                <FiChevronRight size={28} />
+                <FiChevronRight size={26} />
               </button>
             </>
           )}
 
           {showInfo && (
-            <div className="lightbox-bar" onClick={(e) => e.stopPropagation()}>
-              <div className="lightbox-meta">
-                <strong>{formatClock(frame.timestamp)}</strong>
-                <span>
+            <div className="lightbox__bar" onClick={(e) => e.stopPropagation()}>
+              <span className="lightbox__meta">
+                <span className="lightbox__time">{formatClock(frame.timestamp)}</span>
+                <span className="lightbox__index">
                   Frame {(index ?? 0) + 1} of {frames.length}
                 </span>
-              </div>
+              </span>
               <button
-                className="lightbox-download"
+                type="button"
+                className="lightbox__download"
                 onClick={() => {
                   void downloadFrame(frame);
                   onDownload(frame);
                 }}
               >
-                <FiDownload size={16} /> Download
+                <FiDownload size={15} /> Download
               </button>
             </div>
           )}

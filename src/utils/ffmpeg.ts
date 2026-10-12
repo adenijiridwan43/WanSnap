@@ -345,8 +345,9 @@ class FFmpegService {
 
     // `fps=N` spaces frames evenly, so frame i sits at start + i/N. That is
     // exact and avoids relying on -frame_pts, which this build ignores.
-    return this.collect(onProgress, ext, signal, start, options.fps, 0, total, start);
+    return this.collect({ onProgress, ext, signal, start, end, fps: options.fps, total });
   }
+
   /** Deletes everything currently in the output directory. */
   private async clearOutDir(signal: AbortSignal): Promise<void> {
     const entries = await this.ffmpeg
@@ -445,19 +446,20 @@ class FFmpegService {
   private pendingDetachers: Array<() => void> = [];
 
   /** Reads produced files off MEMFS by listing the dir instead of guessing indices. */
-  private async collect(
-    onProgress: (p: ProcessingProgress) => void,
-    ext: string,
-    signal: AbortSignal,
-    /** Start of this chunk's window; frames landing before it are dropped. */
-    startOffset: number,
-    /** Exclusive end of this chunk's window. */
-    windowEnd: number,
-    fps: number,
-    total: number,
-    /** Absolute time the seek started at, which anchors the sample grid. */
-    chunkSeekStart: number
-  ): Promise<Frame[]> {
+  private async collect(options: {
+    onProgress: (p: ProcessingProgress) => void;
+    ext: string;
+    signal: AbortSignal;
+    /** Absolute time in the source video that frame 1 corresponds to. */
+    start: number;
+    /** Exclusive end of the capture window. */
+    end: number;
+    fps: number;
+    /** Expected frame count, for progress reporting. */
+    total: number;
+  }): Promise<Frame[]> {
+    const { onProgress, ext, signal, start, end, fps, total } = options;
+
     const entries = await this.ffmpeg.listDir(OUT_DIR, { signal }).catch(() => [] as { name: string; isDir: boolean }[]);
     const names = entries
       .map((e) => e.name)
@@ -466,6 +468,9 @@ class FFmpegService {
       .filter((name) => new RegExp(`^f_\\d+\\.${ext}$`, 'i').test(name))
       .sort((a, b) => Number(a.match(/_(\d+)\./)![1]) - Number(b.match(/_(\d+)\./)![1]));
 
+    // ffmpeg numbers outputs from 1. `fps=N` spaces them evenly, so frame k
+    // sits at exactly `start + (k-1)/fps`. Deriving the time arithmetically is
+    // both exact and independent of -frame_pts, which this build ignores.
     const frames: Frame[] = [];
     for (let i = 0; i < names.length; i++) {
       this.throwIfCancelled();
@@ -477,37 +482,23 @@ class FFmpegService {
       });
       if (!data || data === 'EOF') continue;
 
-      // Even fps spacing means index maps directly to time. The chunk's start
-      // offset places the label in the source video, not in the trimmed range.
       const index = Number(names[i].match(/_(\d+)\./)?.[1] ?? i + 1);
+      const timestamp = start + (index - 1) / fps;
 
-      // Input seeking lands on the nearest keyframe, which may be earlier than
-      // requested, so index k does not map to a fixed time. Snapping onto the
-      // global 1/fps grid and keeping only frames inside this window yields the
-      // correct set of timestamps wherever the keyframe happened to fall.
-      const raw = chunkSeekStart + (index - 1) / fps;
-      const snapped = Math.round(raw * fps) / fps;
-
-      // Half-frame tolerance on the upper bound includes the frame exactly at
-      // `windowEnd` while still rejecting the next chunk's first frame, so
-      // seams neither duplicate nor drop.
-      const tolerance = 1 / (2 * fps);
-      if (snapped < startOffset - 1e-6 || snapped >= windowEnd + tolerance) {
-        continue;
-      }
-
-      const absolute = Math.round(snapped * fps);
+      // Anything landing outside the window belongs to a wider seek than the
+      // capture asked for and would mislabel every subsequent frame.
+      if (timestamp < start - 1e-6 || timestamp >= end - 1e-6) continue;
 
       frames.push({
-        id: `frame-${absolute}-${snapped.toFixed(3)}`,
+        id: `frame-${index}-${timestamp.toFixed(3)}`,
         url: URL.createObjectURL(new Blob([data as Uint8Array], { type: `image/${ext}` })),
-        timestamp: snapped,
+        timestamp,
       });
 
       onProgress({
         phase: 'reading',
-        percentage: Math.min(99, 5 + ((absolute + 1) / Math.max(1, total)) * 70),
-        currentFrame: absolute + 1,
+        percentage: Math.min(99, 5 + ((i + 1) / Math.max(1, names.length)) * 70),
+        currentFrame: i + 1,
         totalFrames: total,
       });
     }

@@ -1,0 +1,45 @@
+/* src/components/Error/errorboundary.css */
+
+.error-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+}
+
+.error-card {
+  width: 100%;
+  max-width: 380px;
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+.error-card__icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto var(--space-4);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.error-card h2 {
+  font-size: var(--text-md);
+  margin-bottom: var(--space-2);
+}
+
+.error-card p {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.55;
+  /* Long ffmpeg messages can contain paths with no break opportunities. */
+  overflow-wrap: anywhere;
+  margin-bottom: var(--space-6);
+}

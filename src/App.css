@@ -1,10 +1,12 @@
-/* App-level layout styles */
+/* src/App.css - application shell */
+
 .app-container {
   min-height: 100vh;
+  min-height: 100dvh; /* Accounts for mobile browser chrome that shrinks on scroll. */
   display: flex;
   flex-direction: column;
   position: relative;
-  padding-bottom: 70px; /* space for bottom nav */
+  padding-bottom: calc(65px + env(safe-area-inset-bottom, 0));
 }
 
 .app-content {
@@ -12,17 +14,17 @@
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
 }
 
 @media (min-width: 768px) {
   .app-content {
-    padding: 0 32px;
+    padding: 0 var(--space-8);
   }
 }
 
 @media (min-width: 1024px) {
   .app-content {
-    padding: 0 48px;
+    padding: 0 var(--space-12);
   }
 }
